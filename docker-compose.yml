@@ -1,7 +1,8 @@
 services:
   cloudreve:
-    image: cloudreve/cloudreve:latest
-    container_name: cloudreve-backend
+    build:
+      context: .
+      dockerfile: Dockerfile.coolify
     depends_on:
       - postgresql
       - redis
@@ -14,9 +15,14 @@ services:
       - CR_CONF_Database.Type=postgres
       - CR_CONF_Database.Host=postgresql
       - CR_CONF_Database.User=cloudreve
+      - CR_CONF_Database.Password=${POSTGRES_PASSWORD:-cloudreve}
       - CR_CONF_Database.Name=cloudreve
       - CR_CONF_Database.Port=5432
       - CR_CONF_Redis.Server=redis:6379
+      - PASSPORT_API_BASE_URL=${PASSPORT_API_BASE_URL:-}
+      - PASSPORT_API_TOKEN=${PASSPORT_API_TOKEN:-}
+      - PASSPORT_CLIENT_ID=${PASSPORT_CLIENT_ID:-}
+      - PASSPORT_SSO_ONLY=${PASSPORT_SSO_ONLY:-true}
     volumes:
       - backend_data:/cloudreve/data
 
@@ -25,18 +31,16 @@ services:
     # NOTE: For major version jumps:
     # backup & consult https://www.postgresql.org/docs/current/pgupgrade.html 
     image: postgres:17    
-    container_name: postgresql
     restart: unless-stopped
     environment:
       - POSTGRES_USER=cloudreve
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-cloudreve}
       - POSTGRES_DB=cloudreve
-      - POSTGRES_HOST_AUTH_METHOD=trust
     volumes:
       - database_postgres:/var/lib/postgresql/data
 
   redis:
     image: redis:latest
-    container_name: redis
     restart: unless-stopped
     volumes:
       - redis_data:/data

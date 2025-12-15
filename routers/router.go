@@ -285,6 +285,7 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 			{
 				// 用户登录
 				token.POST("",
+					middleware.BlockBuiltinAuthWhenPassportSSOOnly(),
 					middleware.CaptchaRequired(func(c *gin.Context) bool {
 						return dep.SettingProvider().LoginCaptchaEnabled(c)
 					}),
@@ -294,6 +295,7 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 				)
 				// 2-factor authentication
 				token.POST("2fa",
+					middleware.BlockBuiltinAuthWhenPassportSSOOnly(),
 					controllers.FromJSON[usersvc.OtpValidationService](usersvc.OtpValidationParameterCtx{}),
 					controllers.UserLogin2FAValidation,
 					controllers.UserIssueToken,
@@ -310,6 +312,7 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 
 			// Prepare login
 			session.GET("prepare",
+				middleware.BlockBuiltinAuthWhenPassportSSOOnly(),
 				controllers.FromQuery[usersvc.PrepareLoginService](usersvc.PrepareLoginParameterCtx{}),
 				controllers.UserPrepareLogin,
 			)
@@ -318,6 +321,7 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 			{
 				// WebAuthn login prepare
 				authn.PUT("",
+					middleware.BlockBuiltinAuthWhenPassportSSOOnly(),
 					middleware.IsFunctionEnabled(func(c *gin.Context) bool {
 						return dep.SettingProvider().AuthnEnabled(c)
 					}),
@@ -325,6 +329,7 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 				)
 				// WebAuthn finish login
 				authn.POST("",
+					middleware.BlockBuiltinAuthWhenPassportSSOOnly(),
 					middleware.IsFunctionEnabled(func(c *gin.Context) bool {
 						return dep.SettingProvider().AuthnEnabled(c)
 					}),
@@ -333,6 +338,14 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 					controllers.UserIssueToken,
 				)
 			}
+
+			// Passport SSO (OAuth-lite via Passport consent flow)
+			sso := session.Group("sso")
+			{
+				passport := sso.Group("passport")
+				passport.GET("", controllers.PassportSSOStart)
+				passport.GET("callback", controllers.PassportSSOCallback)
+			}
 		}
 
 		// 用户相关路由
@@ -340,6 +353,7 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 		{
 			// 用户注册 Done
 			user.POST("",
+				middleware.BlockBuiltinAuthWhenPassportSSOOnly(),
 				middleware.IsFunctionEnabled(func(c *gin.Context) bool {
 					return dep.SettingProvider().RegisterEnabled(c)
 				}),
@@ -351,12 +365,14 @@ func initMasterRouter(dep dependency.Dep) *gin.Engine {
 			)
 			// 通过邮件里的链接重设密码
 			user.PATCH("reset/:id",
+				middleware.BlockBuiltinAuthWhenPassportSSOOnly(),
 				middleware.HashID(hashid.UserID),
 				controllers.FromJSON[usersvc.UserResetService](usersvc.UserResetParameterCtx{}),
 				controllers.UserReset,
 			)
 			// 发送密码重设邮件
 			user.POST("reset",
+				middleware.BlockBuiltinAuthWhenPassportSSOOnly(),
 				middleware.CaptchaRequired(func(c *gin.Context) bool {
 					return dep.SettingProvider().ForgotPasswordCaptchaEnabled(c)
 				}),

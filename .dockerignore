@@ -1,0 +1,10 @@
+.git
+.github
+cloudreve
+release
+dist
+tmp
+data
+application/statics/assets.zip
+assets/node_modules
+assets/build

@@ -1,0 +1,67 @@
+FROM node:20-bullseye AS assets-builder
+WORKDIR /src
+
+RUN apt-get update && apt-get install -y --no-install-recommends zip \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN corepack enable
+
+ENV NODE_OPTIONS=--max-old-space-size=8192
+
+COPY assets ./assets
+COPY application/constants ./application/constants
+
+RUN mkdir -p application/statics
+
+RUN BACKEND_VERSION="$(sed -nE 's/^var BackendVersion = \"([^\\\"]+)\"/\\1/p' application/constants/constants.go | head -n1)" \
+  && test -n "$BACKEND_VERSION" \
+  && cd assets \
+  && rm -rf build \
+  && yarn install --network-timeout 1000000 --frozen-lockfile --ignore-scripts \
+  && BACKEND_VERSION="$BACKEND_VERSION" node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json","utf8"));p.version=process.env.BACKEND_VERSION;fs.writeFileSync("package.json",JSON.stringify(p,null,2)+"\n");' \
+  && yarn run build \
+  && cd .. \
+  && zip -r - assets/build > application/statics/assets.zip
+
+
+FROM golang:1.24-bullseye AS go-builder
+WORKDIR /src
+
+COPY . .
+COPY --from=assets-builder /src/application/statics/assets.zip ./application/statics/assets.zip
+
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+
+ENV CGO_ENABLED=0
+
+RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w" -o /out/cloudreve .
+
+
+FROM alpine:3.21
+WORKDIR /cloudreve
+
+RUN apk add --no-cache tzdata vips-tools ffmpeg libreoffice aria2 supervisor font-noto font-noto-cjk libheif libraw-tools \
+  && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+  && echo "Asia/Shanghai" > /etc/timezone \
+  && mkdir -p ./data/temp/aria2 \
+  && chmod -R 766 ./data/temp/aria2
+
+ENV CR_ENABLE_ARIA2=1 \
+  CR_SETTING_DEFAULT_thumb_ffmpeg_enabled=1 \
+  CR_SETTING_DEFAULT_thumb_vips_enabled=1 \
+  CR_SETTING_DEFAULT_thumb_libreoffice_enabled=1 \
+  CR_SETTING_DEFAULT_media_meta_ffprobe=1 \
+  CR_SETTING_DEFAULT_thumb_libraw_enabled=1
+
+COPY .build/aria2.supervisor.conf .build/entrypoint.sh ./
+COPY --from=go-builder /out/cloudreve ./cloudreve
+
+RUN chmod +x ./cloudreve \
+  && chmod +x ./entrypoint.sh
+
+EXPOSE 5212 443 6888 6888/udp
+
+VOLUME ["/cloudreve/data"]
+
+ENTRYPOINT ["sh", "./entrypoint.sh"]
