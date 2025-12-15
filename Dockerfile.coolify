@@ -45,6 +45,7 @@ RUN apk add --no-cache tzdata vips-tools ffmpeg libreoffice aria2 supervisor fon
   && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
   && echo "Asia/Shanghai" > /etc/timezone \
   && mkdir -p ./data/temp/aria2 \
+  && mkdir -p /certs \
   && chmod -R 766 ./data/temp/aria2
 
 ENV CR_ENABLE_ARIA2=1 \
