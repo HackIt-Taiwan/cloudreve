@@ -5,6 +5,8 @@ import (
 	rawsql "database/sql"
 	"database/sql/driver"
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"entgo.io/ent/dialect/sql"
@@ -67,8 +69,16 @@ func NewRawEntClient(l logging.Logger, config conf.ConfigProvider) (*ent.Client,
 	}
 	// If Database connection string provided, use it directly.
 	if dbConfig.DatabaseURL != "" {
-		l.Info("Connect to database with connection string %q.", dbConfig.DatabaseURL)
-		client, err = sql.Open(string(confDBType), dbConfig.DatabaseURL)
+		databaseURL := dbConfig.DatabaseURL
+		if confDBType == conf.PostgresDB {
+			if normalizedURL, changed := normalizePostgresDatabaseURL(databaseURL); changed {
+				l.Info(`Normalize Postgres connection string: removed unsupported query param "ssl".`)
+				databaseURL = normalizedURL
+			}
+		}
+
+		l.Info("Connect to database with connection string %q.", databaseURL)
+		client, err = sql.Open(string(confDBType), databaseURL)
 	} else {
 
 		switch confDBType {
@@ -105,11 +115,9 @@ func NewRawEntClient(l logging.Logger, config conf.ConfigProvider) (*ent.Client,
 		default:
 			return nil, fmt.Errorf("unsupported database type %q", confDBType)
 		}
-
-		if err != nil {
-			return nil, fmt.Errorf("failed to open database: %w", err)
-		}
-
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 	// Set connection pool
 	db := client.DB()
@@ -134,6 +142,38 @@ func NewRawEntClient(l logging.Logger, config conf.ConfigProvider) (*ent.Client,
 	}
 
 	return ent.NewClient(driverOpt), nil
+}
+
+func normalizePostgresDatabaseURL(databaseURL string) (string, bool) {
+	parsedURL, err := url.Parse(databaseURL)
+	if err != nil {
+		return databaseURL, false
+	}
+
+	switch strings.ToLower(parsedURL.Scheme) {
+	case "postgres", "postgresql":
+	default:
+		return databaseURL, false
+	}
+
+	query := parsedURL.Query()
+	sslValue := query.Get("ssl")
+	if sslValue == "" {
+		return databaseURL, false
+	}
+
+	if query.Get("sslmode") == "" {
+		switch strings.ToLower(sslValue) {
+		case "1", "true", "t", "on", "yes", "y":
+			query.Set("sslmode", "require")
+		case "0", "false", "f", "off", "no", "n":
+			query.Set("sslmode", "disable")
+		}
+	}
+
+	query.Del("ssl")
+	parsedURL.RawQuery = query.Encode()
+	return parsedURL.String(), true
 }
 
 type sqlite3Driver struct {

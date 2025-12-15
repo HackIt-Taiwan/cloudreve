@@ -15,6 +15,7 @@ services:
       # Use an external Postgres database (Coolify DB resource or managed DB).
       # Example (no TLS): postgres://cloudreve:password@host:5432/cloudreve?sslmode=disable
       # Example (custom CA): postgres://cloudreve:password@host:5432/cloudreve?sslmode=verify-full&sslrootcert=/certs/ca-certificate.crt
+      # NOTE: Avoid `ssl=true` (lib/pq treats it as a server param and Postgres rejects it); use `sslmode=` instead.
       - CR_CONF_Database.DatabaseURL=${CR_DATABASE_URL:-}
       - CR_CONF_Redis.Server=redis:6379
       - PASSPORT_API_BASE_URL=${PASSPORT_API_BASE_URL:-}
