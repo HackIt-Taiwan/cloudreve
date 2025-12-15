@@ -14,6 +14,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	entuser "github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
+	"github.com/cloudreve/Cloudreve/v4/pkg/logging"
 	"github.com/cloudreve/Cloudreve/v4/pkg/sso/passport"
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
 	usersvc "github.com/cloudreve/Cloudreve/v4/service/user"
@@ -24,6 +25,7 @@ const passportRedirectDefault = "/home"
 
 func PassportSSOStart(c *gin.Context) {
 	dep := dependency.FromContext(c)
+	l := logging.FromContext(c)
 	cfg := passport.LoadConfigFromEnv()
 	if !cfg.Configured() {
 		c.JSON(200, serializer.ErrWithDetails(c, serializer.CodeNoPermissionErr, "Passport SSO is not configured", nil))
@@ -58,6 +60,7 @@ func PassportSSOStart(c *gin.Context) {
 		RestartURI:  restartURL,
 	})
 	if err != nil {
+		l.Warning("Passport SSO initiation failed: %s", err)
 		c.JSON(200, serializer.ErrWithDetails(c, serializer.CodeNoPermissionErr, "Failed to initiate Passport SSO", err))
 		return
 	}
@@ -67,6 +70,7 @@ func PassportSSOStart(c *gin.Context) {
 
 func PassportSSOCallback(c *gin.Context) {
 	dep := dependency.FromContext(c)
+	l := logging.FromContext(c)
 	cfg := passport.LoadConfigFromEnv()
 	if !cfg.Configured() {
 		c.JSON(200, serializer.ErrWithDetails(c, serializer.CodeNoPermissionErr, "Passport SSO is not configured", nil))
@@ -92,6 +96,7 @@ func PassportSSOCallback(c *gin.Context) {
 
 	profile, err := passport.ExchangeConsentCode(c, cfg, code)
 	if err != nil {
+		l.Warning("Passport SSO token exchange failed: %s", err)
 		c.JSON(200, serializer.ErrWithDetails(c, serializer.CodeNoPermissionErr, "SSO login failed", err))
 		return
 	}

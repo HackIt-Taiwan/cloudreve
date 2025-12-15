@@ -18,6 +18,8 @@ services:
       # NOTE: Avoid `ssl=true` (lib/pq treats it as a server param and Postgres rejects it); use `sslmode=` instead.
       - CR_CONF_Database.DatabaseURL=${CR_DATABASE_URL:-}
       - CR_CONF_Redis.Server=redis:6379
+      # Important for Passport redirect_uri (first install only): set this to your public URL, e.g. https://drive.hackit.one
+      - CR_SETTING_DEFAULT_siteURL=${CR_SITE_URL:-https://drive.hackit.one}
       - PASSPORT_API_BASE_URL=${PASSPORT_API_BASE_URL:-}
       - PASSPORT_API_TOKEN=${PASSPORT_API_TOKEN:-}
       - PASSPORT_CLIENT_ID=${PASSPORT_CLIENT_ID:-}
