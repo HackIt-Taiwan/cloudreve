@@ -12,6 +12,8 @@ services:
       - 6888:6888/udp
     environment:
       - CR_CONF_Database.Type=postgres
+      # Force Cloudreve to listen on container network (avoid binding 127.0.0.1 which causes reverse-proxy 502).
+      - CR_CONF_System.Listen=:5212
       # Use an external Postgres database (Coolify DB resource or managed DB).
       # Example (no TLS): postgres://cloudreve:password@host:5432/cloudreve?sslmode=disable
       # Example (custom CA): postgres://cloudreve:password@host:5432/cloudreve?sslmode=verify-full&sslrootcert=/certs/ca-certificate.crt

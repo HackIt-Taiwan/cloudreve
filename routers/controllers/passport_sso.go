@@ -23,6 +23,17 @@ import (
 
 const passportRedirectDefault = "/home"
 
+func shortToken(val string) string {
+	val = strings.TrimSpace(val)
+	if val == "" {
+		return ""
+	}
+	if len(val) <= 8 {
+		return val
+	}
+	return val[:8] + "..."
+}
+
 func PassportSSOStart(c *gin.Context) {
 	dep := dependency.FromContext(c)
 	l := logging.FromContext(c)
@@ -31,6 +42,8 @@ func PassportSSOStart(c *gin.Context) {
 		c.JSON(200, serializer.ErrWithDetails(c, serializer.CodeNoPermissionErr, "Passport SSO is not configured", nil))
 		return
 	}
+
+	c.Header("X-Correlation-ID", logging.CorrelationID(c).String())
 
 	redirectPath := sanitizeRelativeRedirect(c.Query("redirect"))
 
@@ -45,13 +58,23 @@ func PassportSSOStart(c *gin.Context) {
 		return
 	}
 
-	callbackURL, err := absoluteURL(dep.SettingProvider().SiteURL(c), constants.APIPrefix+"/session/sso/passport/callback")
+	siteURL := dep.SettingProvider().SiteURL(c)
+	callbackURL, err := absoluteURL(siteURL, constants.APIPrefix+"/session/sso/passport/callback")
 	if err != nil {
 		c.JSON(200, serializer.ErrWithDetails(c, serializer.CodeInternalSetting, "Failed to build callback url", err))
 		return
 	}
 
-	restartURL, _ := absoluteURL(dep.SettingProvider().SiteURL(c), "/session")
+	restartURL, _ := absoluteURL(siteURL, "/session")
+	l.Info("Passport SSO start: host=%q redirect=%q site_url=%q callback=%q passport_api=%q client_id=%q state=%q",
+		c.Request.Host,
+		redirectPath,
+		siteURL.String(),
+		callbackURL,
+		cfg.APIBaseURL,
+		cfg.ClientID,
+		shortToken(state),
+	)
 
 	consentURL, err := passport.RequestConsent(c, cfg, passport.ConsentRequest{
 		RedirectURI: callbackURL,
@@ -65,6 +88,7 @@ func PassportSSOStart(c *gin.Context) {
 		return
 	}
 
+	l.Info("Passport SSO start: redirecting to consent_url=%q", consentURL)
 	c.Redirect(http.StatusFound, consentURL)
 }
 
@@ -77,6 +101,8 @@ func PassportSSOCallback(c *gin.Context) {
 		return
 	}
 
+	c.Header("X-Correlation-ID", logging.CorrelationID(c).String())
+
 	code := strings.TrimSpace(c.Query("code"))
 	state := strings.TrimSpace(c.Query("state"))
 	if code == "" || state == "" {
@@ -84,15 +110,19 @@ func PassportSSOCallback(c *gin.Context) {
 		return
 	}
 
+	l.Info("Passport SSO callback: host=%q code=%q state=%q", c.Request.Host, shortToken(code), shortToken(state))
+
 	redirRaw, ok := dep.KV().Get(passport.StateKeyPrefix + state)
 	_ = dep.KV().Delete("", passport.StateKeyPrefix+state)
 	if !ok {
+		l.Warning("Passport SSO callback: invalid or expired state=%q", shortToken(state))
 		c.JSON(200, serializer.ErrWithDetails(c, serializer.CodeCredentialInvalid, "Invalid or expired SSO state", nil))
 		return
 	}
 
 	redirectPath, _ := redirRaw.(string)
 	redirectPath = sanitizeRelativeRedirect(redirectPath)
+	l.Info("Passport SSO callback: resolved redirect=%q", redirectPath)
 
 	profile, err := passport.ExchangeConsentCode(c, cfg, code)
 	if err != nil {
@@ -106,6 +136,8 @@ func PassportSSOCallback(c *gin.Context) {
 		c.JSON(200, serializer.ErrWithDetails(c, serializer.CodeNoPermissionErr, "SSO login missing email", nil))
 		return
 	}
+
+	l.Info("Passport SSO callback: profile email=%q id=%q logto_id=%q", email, strings.TrimSpace(profile.ID), strings.TrimSpace(profile.LogtoID))
 
 	userClient := dep.UserClient()
 	u, err := userClient.GetByEmail(c, email)
@@ -126,11 +158,14 @@ func PassportSSOCallback(c *gin.Context) {
 				c.JSON(200, serializer.ErrWithDetails(c, serializer.CodeDBError, "Failed to create user", err))
 				return
 			}
+			l.Info("Passport SSO callback: user created id=%d email=%q", u.ID, email)
 		} else {
 			c.JSON(200, serializer.ErrWithDetails(c, serializer.CodeDBError, "Failed to query user", err))
 			return
 		}
 	}
+
+	l.Info("Passport SSO callback: user resolved id=%d email=%q", u.ID, email)
 
 	switch u.Status {
 	case entuser.StatusManualBanned, entuser.StatusSysBanned:
