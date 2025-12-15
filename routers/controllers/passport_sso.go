@@ -14,6 +14,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v4/ent"
 	entuser "github.com/cloudreve/Cloudreve/v4/ent/user"
 	"github.com/cloudreve/Cloudreve/v4/inventory"
+	invtypes "github.com/cloudreve/Cloudreve/v4/inventory/types"
 	"github.com/cloudreve/Cloudreve/v4/pkg/logging"
 	"github.com/cloudreve/Cloudreve/v4/pkg/sso/passport"
 	"github.com/cloudreve/Cloudreve/v4/pkg/serializer"
@@ -180,21 +181,41 @@ func PassportSSOCallback(c *gin.Context) {
 	}
 
 	// Best-effort profile sync on each login.
+	updatedFields := make([]string, 0, 3)
 	if nickname := strings.TrimSpace(profile.Nickname); nickname != "" && nickname != u.Nick {
 		if updated, err := userClient.UpdateNickname(c, u, nickname); err == nil {
 			u = updated
+			updatedFields = append(updatedFields, "nickname")
+		} else {
+			l.Warning("Passport SSO callback: failed syncing nickname: %s", err)
 		}
 	}
 	if avatar := strings.TrimSpace(profile.AvatarURL); avatar != "" && avatar != u.Avatar {
 		if updated, err := userClient.UpdateAvatar(c, u, avatar); err == nil {
 			u = updated
+			updatedFields = append(updatedFields, "avatar")
+		} else {
+			l.Warning("Passport SSO callback: failed syncing avatar: %s", err)
 		}
 	}
 	if lang := strings.TrimSpace(profile.PreferredLanguage); lang != "" {
-		if u.Settings != nil && u.Settings.Language != lang {
-			u.Settings.Language = lang
-			_ = userClient.SaveSettings(c, u)
+		if u.Settings == nil {
+			u.Settings = &invtypes.UserSetting{
+				VersionRetention:    true,
+				VersionRetentionMax: 10,
+			}
 		}
+		if u.Settings.Language != lang {
+			u.Settings.Language = lang
+			if err := userClient.SaveSettings(c, u); err == nil {
+				updatedFields = append(updatedFields, "language")
+			} else {
+				l.Warning("Passport SSO callback: failed syncing language: %s", err)
+			}
+		}
+	}
+	if len(updatedFields) > 0 {
+		l.Info("Passport SSO callback: profile synced, updated=%q", strings.Join(updatedFields, ","))
 	}
 
 	token, err := dep.TokenAuth().Issue(c, u, nil)
